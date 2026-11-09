@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=3D Reversi
+Name[ru]=Реверси 3D
+Comment=Reversi (Othello) against the computer or a friend
+Comment[ru]=Реверси (отелло) против компьютера или друга
+Exec=reversi3d
+Icon=reversi3d
+Terminal=false
+Categories=Game;BoardGame;
+Keywords=reversi;othello;board game;
+Keywords[ru]=реверси;отелло;настольная игра;
+StartupWMClass=reversi3d

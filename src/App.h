@@ -1,0 +1,207 @@
+#pragma once
+
+#include "BoardView.h"
+#include "Camera.h"
+#include "Engine.h"
+#include "Gl.h"
+#include "Renderer.h"
+#include "Reversi.h"
+#include "Settings.h"
+#include "Sound.h"
+#include "Strings.h"
+#include "Text.h"
+#include "UiPainter.h"
+
+#include <SDL.h>
+
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+// The game's window: it runs the game, the computer players and the interface, and draws them.
+class App {
+public:
+    App();
+    ~App();
+    App(const App&) = delete;
+    App& operator=(const App&) = delete;
+
+    int Run();
+
+private:
+    enum Mode { PlayBlack, PlayWhite, TwoPlayers, Demo };
+
+    // SDL from the first to the last moment of the game; everything else lives within it.
+    struct SdlSession {
+        SdlSession();
+        ~SdlSession();
+        SdlSession(const SdlSession&) = delete;
+        SdlSession& operator=(const SdlSession&) = delete;
+    };
+
+    struct WindowDeleter {
+        void operator()(SDL_Window* window) const { SDL_DestroyWindow(window); }
+    };
+    struct CursorDeleter {
+        void operator()(SDL_Cursor* cursor) const { SDL_FreeCursor(cursor); }
+    };
+
+    // What the mouse did since the last frame, in pixels.
+    struct Pointer {
+        float x = -1, y = -1;
+        bool leftDown = false, rightDown = false;
+        bool leftPressed = false, leftReleased = false, rightPressed = false, rightReleased = false;
+        float wheel = 0;
+        bool consumed = false; // taken by the interface
+    };
+
+    enum class Gesture { None, PressSquare, TurnCamera };
+
+    struct Toast {
+        std::string text;
+        float age = 0;
+    };
+
+    // The window's size when it is neither maximized nor full screen, in window units.
+    struct WindowSize {
+        int width = 0, height = 0;
+    };
+
+    void CreateMainWindow();
+    void HandleEvent(const SDL_Event& event);
+    void HandleWindowEvent(const SDL_WindowEvent& event);
+    void UpdateSize();
+    void ShowLoading();
+    void BuildFonts();
+    void Frame();
+    void Update(float seconds);
+    bool NeedsAnimation() const;
+
+    // The game.
+    bool IsHuman(reversi::Color side) const;
+    bool HumanToMove() const;
+    void NewGame();
+    void PlayMove(reversi::Square square);
+    void Undo();
+    void Redo();
+    void SetMode(int mode);
+    void SetLevel(int level);
+    void SetTheme(int theme);
+    void ToggleShowMoves();
+    void ToggleSound();
+    void ToggleLanguage();
+    void StopComputer();
+    void UpdateComputer(float seconds);
+    void UpdateHint();
+    void RequestHint();
+    void AfterPositionChange();
+    // A toast for the pass, if the side to move just passed.
+    void AnnouncePass();
+    void CopyGame(bool position);
+    void PasteGame();
+    void Save();
+
+    // Input.
+    void PointerAt(int windowX, int windowY);
+    void HandleBoardPointer();
+    void HandleKey(const SDL_KeyboardEvent& key);
+    int SquareUnderPointer() const;
+    math::Vec3 PointerOnPlane(float height) const;
+    reversi::Color ViewSide() const { return m_mode == PlayWhite ? reversi::Color::White : reversi::Color::Black; }
+
+    // The interface.
+    float Scale() const { return m_scale; }
+    ui::Rect PanelRect() const;
+    ui::Rect FreeArea() const;
+    std::vector<render::FrostedPanel> FrostedPanels() const;
+    // The rules note in lines that fit the help.
+    std::vector<std::string> RulesLines() const;
+    float HelpRowHeight() const;
+    ui::Rect HelpCard() const;
+    ui::Rect BannerCard() const;
+    void DrawInterface();
+    void DrawPanel();
+    void DrawScore(ui::Rect area);
+    void DrawMoveList(ui::Rect area);
+    void DrawStatus(ui::Rect area);
+    void DrawBanner() const;
+    void DrawHelp();
+    void DrawToasts();
+    bool Button(int id, ui::Rect rect, std::string_view label, bool enabled = true, bool accent = false);
+    // A label with a value stepped by two arrows, past the width of the longest label of the column; returns -1 or 1
+    // when an arrow is clicked, else 0.
+    int Selector(int id, ui::Rect rect, std::string_view label, std::string_view value, float labelWidth);
+    void ShowToast(std::string text);
+    std::string_view T(Str id) const { return tr(id, m_language); }
+    std::string PlayerName(reversi::Color side) const;
+    // The discs at the end, and why it ended.
+    std::string ResultDetail(reversi::GameStatus status) const;
+
+    void ToggleFullScreen();
+
+    // Declared in the order of their making; destroyed the other way round, the window after what draws in it.
+    SdlSession m_sdl;
+    SoundBank m_sound;
+    std::unique_ptr<SDL_Window, WindowDeleter> m_window;
+    std::unique_ptr<SDL_Cursor, CursorDeleter> m_arrowCursor, m_handCursor;
+    std::unique_ptr<gl::Context> m_context;
+    std::unique_ptr<render::Renderer> m_renderer;
+    std::unique_ptr<ui::Painter> m_painter;
+    std::array<std::unique_ptr<text::Font>, 3> m_fonts;
+    std::unique_ptr<BoardView> m_view;
+
+    Settings m_settings;
+    Language m_language = Language::English;
+    int m_width = 0, m_height = 0;             // of the picture, in pixels
+    int m_windowWidth = 0, m_windowHeight = 0; // in window units, which the mouse reports
+    float m_textScale = 1;                     // the desktop's
+    float m_scale = 1;                         // of the interface: the desktop's, in pixels
+    float m_fontScale = 0;                     // that the fonts were made for
+    bool m_running = true;
+    bool m_dirty = true; // something to draw since the last frame
+    bool m_fullScreen = false;
+    bool m_maximizedBeforeFullScreen = false;
+    WindowSize m_normalSize, m_previousNormalSize;
+    std::uint32_t m_normalSizeTime = 0; // when the window last took a size of its own, in SDL's milliseconds
+    bool m_cursorHand = false, m_cursorShownHand = false;
+    std::chrono::steady_clock::time_point m_lastFrame;
+    float m_time = 0;
+
+    reversi::Game m_game;
+    OrbitCamera m_camera;
+    int m_mode = PlayBlack;
+    int m_level = 3;
+    int m_theme = 0;
+    bool m_showMoves = true;
+    reversi::AiPlayer m_computer{32};
+    reversi::AiPlayer m_hinter{16};
+    bool m_computerThinking = false;
+    float m_computerClock = 0;
+    std::optional<reversi::SearchResult> m_computerResult;
+    bool m_hintThinking = false;
+    std::optional<reversi::Square> m_hint;
+    float m_hintGlow = 0;
+    bool m_announcedEnd = false;
+    std::vector<BoardView::Event> m_events;
+
+    Pointer m_pointer;
+    Gesture m_gesture = Gesture::None;
+    float m_pressX = 0, m_pressY = 0;
+    float m_dragX = 0, m_dragY = 0; // the pointer when the camera last turned
+    int m_pressSquare = -1;
+    int m_hoverSquare = -1; // a legal square under the pointer
+
+    int m_activeWidget = 0;
+    bool m_panelVisible = true;
+    float m_panelSlide = 1;
+    bool m_helpVisible = false;
+    float m_moveScroll = 0;
+    bool m_followMoves = true;
+    float m_bannerFade = 0;
+    reversi::GameStatus m_bannerStatus;
+    std::vector<Toast> m_toasts;
+};
