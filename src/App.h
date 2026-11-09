@@ -5,6 +5,7 @@
 #include "Engine.h"
 #include "Gl.h"
 #include "Renderer.h"
+#include "Resources.h"
 #include "Reversi.h"
 #include "Settings.h"
 #include "Sound.h"
@@ -61,6 +62,14 @@ private:
 
     enum class Gesture { None, PressSquare, TurnCamera };
 
+    // The card shown over the game, which takes the mouse while it is open.
+    enum class Dialog { None, Help, About };
+
+    // What the pointer does to a widget in this frame.
+    struct Interaction {
+        bool hover = false, pressed = false, clicked = false;
+    };
+
     struct Toast {
         std::string text;
         float age = 0;
@@ -71,7 +80,7 @@ private:
         int width = 0, height = 0;
     };
 
-    void CreateMainWindow();
+    void CreateMainWindow(const resources::Image& icon);
     void HandleEvent(const SDL_Event& event);
     void HandleWindowEvent(const SDL_WindowEvent& event);
     void UpdateSize();
@@ -103,6 +112,7 @@ private:
     void AnnouncePass();
     void CopyGame(bool position);
     void PasteGame();
+    void OpenLink(const char* url);
     void Save();
 
     // Input.
@@ -118,10 +128,15 @@ private:
     ui::Rect PanelRect() const;
     ui::Rect FreeArea() const;
     std::vector<render::FrostedPanel> FrostedPanels() const;
+    // The text in lines no wider than `width`, broken at the spaces.
+    std::vector<std::string> WrapText(ui::FontId font, std::string_view text, float width) const;
     // The rules note in lines that fit the help.
     std::vector<std::string> RulesLines() const;
     float HelpRowHeight() const;
+    // A card of the size over the game: beside the panel, or over it where the window is too narrow for that.
+    ui::Rect CenteredCard(float width, float height) const;
     ui::Rect HelpCard() const;
+    ui::Rect AboutCard() const;
     ui::Rect BannerCard() const;
     void DrawInterface();
     void DrawPanel();
@@ -130,7 +145,13 @@ private:
     void DrawStatus(ui::Rect area);
     void DrawBanner() const;
     void DrawHelp();
+    void DrawAbout();
     void DrawToasts();
+    void ToggleDialog(Dialog dialog);
+    // A press outside the open card closes it, unless it is the click that opened it.
+    bool PressedOutside(ui::Rect card) const;
+    // Hovering, pressing and clicking; a click sounds.
+    Interaction Interact(int id, ui::Rect rect, bool enabled);
     bool Button(int id, ui::Rect rect, std::string_view label, bool enabled = true, bool accent = false);
     // A label with a value stepped by two arrows, past the width of the longest label of the column; returns -1 or 1
     // when an arrow is clicked, else 0.
@@ -198,7 +219,8 @@ private:
     int m_activeWidget = 0;
     bool m_panelVisible = true;
     float m_panelSlide = 1;
-    bool m_helpVisible = false;
+    Dialog m_dialog = Dialog::None;
+    bool m_dialogOpening = false; // opened in this frame
     float m_moveScroll = 0;
     bool m_followMoves = true;
     float m_bannerFade = 0;

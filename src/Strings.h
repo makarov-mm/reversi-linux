@@ -71,6 +71,7 @@ enum class Str {
     HelpFullScreen,
     HelpCopy,
     HelpPaste,
+    HelpAbout,
     HelpClose,
     Rules,
     RulesNote,
@@ -81,6 +82,7 @@ enum class Str {
     HintToast,
     NothingToUndo,
     NotLegal,
+    LinkCopied,
     Count
 };
 

@@ -1,8 +1,9 @@
-// Text from the font atlases, and shapes drawn from their distance functions.
+// Text from the font atlases, shapes drawn from their distance functions, and the program's icon.
 
 layout(binding = 8) uniform sampler2D uFont0;
 layout(binding = 9) uniform sampler2D uFont1;
 layout(binding = 10) uniform sampler2D uFont2;
+layout(binding = 11) uniform sampler2D uIcon; // premultiplied by alpha
 
 in vec2 vUv;
 in vec4 vColor;
@@ -31,7 +32,10 @@ float Triangle(vec2 p, vec2 p0, vec2 p1, vec2 p2)
 
 void main()
 {
+    // Measured before the branches, where all the pixels of a quad still run together.
+    vec2 uvDx = dFdx(vUv), uvDy = dFdy(vUv);
     int kind = int(vShape.x + 0.5);
+    vec3 color = vColor.rgb;
     float alpha = 1.0;
     if (kind == 0)
         alpha = textureLod(uFont0, vUv, 0.0).r;
@@ -70,5 +74,11 @@ void main()
         vec2 p = vec2(vUv.x * sign(vShape.w), vUv.y);
         alpha = Saturate(0.5 - Triangle(p, vec2(-vShape.y, -vShape.z), vec2(vShape.y, 0.0), vec2(-vShape.y, vShape.z)));
     }
-    fragColor = vec4(vColor.rgb, vColor.a * alpha);
+    else if (kind == 9) {
+        // The icon, from the mip level that fits its size on the screen.
+        vec4 texel = textureGrad(uIcon, vUv, uvDx, uvDy);
+        color = texel.rgb / max(texel.a, 1e-4);
+        alpha = texel.a;
+    }
+    fragColor = vec4(color, vColor.a * alpha);
 }

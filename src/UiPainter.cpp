@@ -1,5 +1,7 @@
 #include "UiPainter.h"
 
+#include "Resources.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -45,6 +47,29 @@ Painter::Painter()
         glVertexArrayAttribFormat(array, attribute, sizes[attribute], types[attribute], types[attribute] == GL_UNSIGNED_BYTE, offsets[attribute]);
         glVertexArrayAttribBinding(array, attribute, 0);
     }
+}
+
+void Painter::SetIcon(const resources::Image& icon)
+{
+    if (icon.Empty())
+        return;
+    // Premultiplied by alpha, so that the smaller mip levels do not darken at the edges with the color of the
+    // transparent pixels; the shader divides it out again.
+    std::vector<std::uint8_t> pixels = icon.rgba;
+    for (std::size_t i = 0; i < pixels.size(); i += 4)
+        for (std::size_t c = 0; c < 3; ++c)
+            pixels[i + c] = static_cast<std::uint8_t>((pixels[i + c] * pixels[i + 3] + 127) / 255);
+    int levels = 1;
+    while ((std::max(icon.width, icon.height) >> levels) > 0)
+        ++levels;
+    m_icon = CreateTexture(GL_TEXTURE_2D);
+    glTextureStorage2D(m_icon.Id(), levels, GL_RGBA8, icon.width, icon.height);
+    glTextureSubImage2D(m_icon.Id(), 0, 0, 0, icon.width, icon.height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glGenerateTextureMipmap(m_icon.Id());
+    glTextureParameteri(m_icon.Id(), GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTextureParameteri(m_icon.Id(), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(m_icon.Id(), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_icon.Id(), GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
 void Painter::Begin(int width, int height)
@@ -99,6 +124,12 @@ void Painter::Arrow(float x, float y, float halfWidth, float halfHeight, float d
 {
     Shape({.x = x - halfWidth, .y = y - halfHeight, .width = halfWidth * 2, .height = halfHeight * 2}, 1, color,
           {.x = 8, .y = halfWidth, .z = halfHeight, .w = direction});
+}
+
+void Painter::Icon(Rect rect, float opacity)
+{
+    if (m_icon)
+        Quad(rect.x, rect.y, rect.Right(), rect.Bottom(), 0, 0, 1, 1, Fade(Rgba(255, 255, 255), opacity), {.x = 9});
 }
 
 float Painter::Text(FontId id, float x, float y, std::string_view utf8, Color color)
@@ -158,6 +189,7 @@ void Painter::Flush()
     m_program.Use();
     for (GLuint i = 0; i < m_fonts.size(); ++i)
         glBindTextureUnit(8 + i, m_fonts[i] ? m_fonts[i]->Texture() : 0);
+    glBindTextureUnit(11, m_icon.Id());
     glBindVertexArray(m_vertexArray.Id());
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(m_vertices.size()));
     glDisable(GL_BLEND);

@@ -6,7 +6,8 @@
 namespace {
 using Pair = std::pair<std::string_view, std::string_view>;
 
-constexpr std::array<Pair, static_cast<std::size_t>(Str::Count)> table{{
+// In the order of Str.
+constexpr auto table = std::to_array<Pair>({
     {"3D Reversi", "Реверси 3D"},
     {"Black to move", "Ход чёрных"},
     {"White to move", "Ход белых"},
@@ -72,6 +73,7 @@ constexpr std::array<Pair, static_cast<std::size_t>(Str::Count)> table{{
     {"Full screen", "Весь экран"},
     {"Copy the game, Shift: the position", "Копировать партию, Shift: позицию"},
     {"Paste a game or a position", "Вставить партию или позицию"},
+    {"About the game and its author", "Об игре и её авторе"},
     {"Close this help", "Закрыть справку"},
     {"Rules", "Правила"},
     {"Place a disc so that a line of your opponent's discs lies between it and one of yours: they all turn to your color. Black begins; a side that cannot "
@@ -85,7 +87,9 @@ constexpr std::array<Pair, static_cast<std::size_t>(Str::Count)> table{{
     {"Hint: ", "Подсказка: "},
     {"No moves to take back", "Нечего отменять"},
     {"Nothing to turn over there", "Сюда нельзя: нечего переворачивать"},
-}};
+    {"No browser opened: the link is copied", "Браузер не открылся: ссылка скопирована"},
+});
+static_assert(table.size() == static_cast<std::size_t>(Str::Count), "a text for each Str");
 } // namespace
 
 std::string_view tr(Str id, Language language)

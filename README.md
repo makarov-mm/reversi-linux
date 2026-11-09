@@ -35,6 +35,7 @@ There is no game engine and no model, texture or sound file: the discs are turne
 - Copy the game as a transcript or the position as a board string, and paste either to continue from it
 - The game in progress, the settings and the window's size are kept between sessions
 - English and Russian interface, chosen from the system language
+- An about card with the author and links to his pages, which open in the browser
 - Sound effects, mixed so that they can play over each other
 - Full screen; the interface follows the desktop's scaling (X11's `Xft.dpi`, as Cinnamon, GNOME, KDE and Xfce set it, or the output scale on Wayland)
 - Shortcuts work in any keyboard layout: by their letters in Latin layouts, by their places in others, such as the Russian one
@@ -75,6 +76,7 @@ There is no game engine and no model, texture or sound file: the discs are turne
 | Copy the game / the position | `Ctrl+C` / `Ctrl+Shift+C` |
 | Paste a game or a position | `Ctrl+V` |
 | Help | `F1` |
+| About the game and its author | `A` |
 | Leave full screen | `Esc` |
 
 ## Requirements
@@ -132,7 +134,7 @@ The settings and the game in progress are kept in `~/.config/reversi3d/reversi3d
 │   ├── Settings.*         the settings file
 │   ├── Strings.*          English and Russian texts
 │   ├── Desktop.*          the desktop's scaling (Xft.dpi) and the window icon
-│   ├── Resources.*        access to the files built into the executable
+│   ├── Resources.*        access to the files built into the executable, and the icon decoded
 │   └── MathTypes.h        vectors and matrices
 └── CMakeLists.txt
 ```

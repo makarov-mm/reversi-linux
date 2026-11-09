@@ -12,7 +12,11 @@
 #include <utility>
 #include <vector>
 
-// Draws the interface: rounded panels, shadows and text, in pixels from the window's top left corner.
+namespace resources {
+struct Image;
+}
+
+// Draws the interface: rounded panels, shadows, text and the program's icon, in pixels from the window's top left corner.
 namespace ui {
 
 struct Color {
@@ -46,6 +50,7 @@ public:
 
     void SetFonts(const text::Font* body, const text::Font* heading, const text::Font* display) { m_fonts = {body, heading, display}; }
     const text::Font& Font(FontId id) const { return *m_fonts[std::to_underlying(id)]; }
+    void SetIcon(const resources::Image& icon);
 
     void Begin(int width, int height);
     void Fill(Rect rect, float radius, Color color);
@@ -55,6 +60,7 @@ public:
     void Spinner(float x, float y, float radius, float thickness, float angle, Color color);
     // A small triangle pointing left (direction -1) or right (1).
     void Arrow(float x, float y, float halfWidth, float halfHeight, float direction, Color color);
+    void Icon(Rect rect, float opacity = 1);
     // Text whose line starts at the top left point; returns its width.
     float Text(FontId font, float x, float y, std::string_view utf8, Color color);
     void TextCentered(FontId font, Rect rect, std::string_view utf8, Color color);
@@ -80,6 +86,7 @@ private:
     gl::VertexArray m_vertexArray;
     std::vector<Vertex> m_vertices;
     std::array<const text::Font*, 3> m_fonts{};
+    gl::Texture m_icon;
     int m_width = 0, m_height = 0;
 };
 

@@ -36,8 +36,11 @@ enum Widget {
     ThemeSelector = MovesSelector + 2,
     SoundButton = ThemeSelector + 2,
     LanguageButton,
-    ModalWidgets = 100, // the widgets of the help
+    AboutButton,
+    ModalWidgets = 100, // the widgets of the cards over the game
     HelpClose,
+    AboutClose,
+    AboutLinks = 110,
 };
 
 constexpr ui::Color TextColor = Rgba(236, 239, 245);
@@ -124,10 +127,12 @@ App::App()
     m_panelVisible = m_settings.panel;
     m_panelSlide = m_panelVisible ? 1.0f : 0.0f;
 
-    CreateMainWindow();
+    const resources::Image icon = resources::Png("reversi3d.png");
+    CreateMainWindow(icon);
     m_context = std::make_unique<gl::Context>(m_window.get());
     render::Program::SetVersion(m_context->Version());
     m_painter = std::make_unique<ui::Painter>();
+    m_painter->SetIcon(icon);
     SDL_ShowWindow(m_window.get());
     if (m_settings.maximized)
         SDL_MaximizeWindow(m_window.get());
@@ -153,7 +158,7 @@ App::~App()
     m_hinter.Cancel();
 }
 
-void App::CreateMainWindow()
+void App::CreateMainWindow(const resources::Image& icon)
 {
     gl::Context::RequestPixelFormat();
     // Hidden until it has its size, which depends on the desktop's scaling, which is known from a window.
@@ -162,7 +167,7 @@ void App::CreateMainWindow()
     if (!m_window)
         throw std::runtime_error(std::format("The window could not be created: {}", SDL_GetError()));
     SDL_Window* window = m_window.get();
-    desktop::SetIcon(window);
+    desktop::SetIcon(window, icon);
     SDL_StopTextInput(); // keys only: no input method in the way
     m_textScale = desktop::TextScale(window);
 
@@ -373,6 +378,10 @@ void App::Frame()
     m_painter->Flush();
     HandleBoardPointer();
 
+    // The widgets are drawn as they were before they heard the click: what it changed shows in the next frame.
+    if (m_pointer.leftPressed || m_pointer.leftReleased || m_pointer.rightPressed || m_pointer.rightReleased)
+        m_dirty = true;
+    m_dialogOpening = false;
     m_pointer.leftPressed = m_pointer.leftReleased = m_pointer.rightPressed = m_pointer.rightReleased = false;
     m_pointer.wheel = 0;
     m_pointer.consumed = false;
@@ -665,6 +674,15 @@ void App::PasteGame()
     ShowToast(std::string(T(Str::GameLoaded)));
 }
 
+void App::OpenLink(const char* url)
+{
+    if (SDL_OpenURL(url) == 0)
+        return;
+    // Where no browser could be started, the link goes to the clipboard instead.
+    SDL_SetClipboardText(url);
+    ShowToast(std::string(T(Str::LinkCopied)));
+}
+
 void App::Save()
 {
     m_settings.theme = m_theme;
@@ -710,7 +728,7 @@ int App::SquareUnderPointer() const { return board::SquareAt(PointerOnPlane(0));
 
 void App::HandleBoardPointer()
 {
-    const bool blocked = m_pointer.consumed || m_helpVisible;
+    const bool blocked = m_pointer.consumed || m_dialog != Dialog::None;
     const float scale = Scale();
     const bool ready = HumanToMove() && m_view->Settled();
     const bool insideWindow = m_pointer.x >= 0 && m_pointer.y >= 0 && m_pointer.x < static_cast<float>(m_width) && m_pointer.y < static_cast<float>(m_height);
@@ -775,9 +793,9 @@ void App::HandleKey(const SDL_KeyboardEvent& event)
             ToggleFullScreen();
         return; // the rest of Alt is the desktop's
     }
-    if (m_helpVisible && (key.sym == SDLK_ESCAPE || key.sym == SDLK_F1)) {
+    if (m_dialog != Dialog::None && key.sym == SDLK_ESCAPE) {
         if (!repeat)
-            m_helpVisible = false;
+            m_dialog = Dialog::None;
         return;
     }
 
@@ -812,7 +830,7 @@ void App::HandleKey(const SDL_KeyboardEvent& event)
         m_panelVisible = !m_panelVisible;
         Save();
         return;
-    case SDLK_F1: m_helpVisible = !m_helpVisible; return;
+    case SDLK_F1: ToggleDialog(Dialog::Help); return;
     case SDLK_F11: ToggleFullScreen(); return;
     case SDLK_ESCAPE:
         if (m_fullScreen)
@@ -821,6 +839,7 @@ void App::HandleKey(const SDL_KeyboardEvent& event)
     default: break;
     }
     switch (letter) {
+    case 'a': ToggleDialog(Dialog::About); return;
     case 'n': NewGame(); return;
     case 'h': RequestHint(); return;
     case 'f': m_camera.Flip(); return;
@@ -853,8 +872,28 @@ Rect App::FreeArea() const
 
 namespace {
 
-constexpr int HelpLineCount = 20;
+constexpr int HelpLineCount = 21;
 constexpr float HelpWidth = 680, HelpRow = 27, HelpPad = 28;
+constexpr float AboutWidth = 520, AboutPad = 28, AboutIcon = 76, LinkRow = 36, LinkGap = 6;
+
+// The about card is in English, whatever the language of the interface.
+constexpr std::string_view AboutDescription =
+    "A 3D Reversi (Othello) game written in modern C++ on OpenGL\u00A04.6, with a computer opponent of five levels, from Beginner to Master. "
+    "Everything you see and hear is made in code: there is no model, texture or sound file.";
+
+struct Link {
+    std::string_view name;
+    std::string_view address; // as shown
+    const char* url;
+};
+
+constexpr std::array<Link, 5> AuthorLinks{{
+    {"GitHub", "github.com/makarov-mm", "https://github.com/makarov-mm"},
+    {"GitHub Sponsors", "github.com/sponsors/makarov-mm", "https://github.com/sponsors/makarov-mm"},
+    {"LinkedIn", "linkedin.com/in/makarov-mm", "https://www.linkedin.com/in/makarov-mm/"},
+    {"Threads", "threads.net/@m.m.makarov", "https://www.threads.net/@m.m.makarov"},
+    {"Instagram", "instagram.com/m.m.makarov", "https://www.instagram.com/m.m.makarov/"},
+}};
 
 Str ResultTitle(reversi::GameResult result)
 {
@@ -863,18 +902,16 @@ Str ResultTitle(reversi::GameResult result)
 
 } // namespace
 
-std::vector<std::string> App::RulesLines() const
+std::vector<std::string> App::WrapText(FontId font, std::string_view words, float width) const
 {
-    const float width = (HelpWidth - 2 * HelpPad) * Scale();
     std::vector<std::string> lines;
     std::string line;
-    std::string_view words = T(Str::RulesNote);
     while (!words.empty()) {
         const std::size_t space = std::min(words.find(' '), words.size());
         const std::string_view word = words.substr(0, space);
         words.remove_prefix(std::min(space + 1, words.size()));
         std::string longer = line.empty() ? std::string(word) : std::format("{} {}", line, word);
-        if (!line.empty() && m_painter->Measure(FontId::Body, longer) > width) {
+        if (!line.empty() && m_painter->Measure(font, longer) > width) {
             lines.push_back(std::move(line));
             line = word;
         }
@@ -887,6 +924,8 @@ std::vector<std::string> App::RulesLines() const
     return lines;
 }
 
+std::vector<std::string> App::RulesLines() const { return WrapText(FontId::Body, T(Str::RulesNote), (HelpWidth - 2 * HelpPad) * Scale()); }
+
 // The rows of the help close up, down to the height of a line, where the window is too low for them.
 float App::HelpRowHeight() const
 {
@@ -896,15 +935,29 @@ float App::HelpRowHeight() const
     return std::max(m_painter->LineHeight(FontId::Body), std::min(room / rows, HelpRow * scale));
 }
 
+Rect App::CenteredCard(float width, float height) const
+{
+    const Rect free = FreeArea();
+    const float x = width <= free.width ? free.x + (free.width - width) / 2 : std::max(0.0f, (static_cast<float>(m_width) - width) / 2);
+    return {x, std::max(10 * Scale(), (static_cast<float>(m_height) - height) / 2), width, height};
+}
+
 Rect App::HelpCard() const
 {
     const float scale = Scale();
     const float rows = static_cast<float>(HelpLineCount + 1 + RulesLines().size());
-    const float width = HelpWidth * scale, height = (2 * HelpPad + 44 + 12) * scale + rows * HelpRowHeight();
-    const Rect free = FreeArea();
-    // Beside the panel, or over it where the window is too narrow for that.
-    const float x = width <= free.width ? free.x + (free.width - width) / 2 : std::max(0.0f, (static_cast<float>(m_width) - width) / 2);
-    return {x, std::max(10 * scale, (static_cast<float>(m_height) - height) / 2), width, height};
+    return CenteredCard(HelpWidth * scale, (2 * HelpPad + 44 + 12) * scale + rows * HelpRowHeight());
+}
+
+Rect App::AboutCard() const
+{
+    const float scale = Scale();
+    const ui::Painter& p = *m_painter;
+    const auto lines = static_cast<float>(WrapText(FontId::Body, AboutDescription, (AboutWidth - 2 * AboutPad) * scale).size());
+    const auto links = static_cast<float>(AuthorLinks.size());
+    const float height = (2 * AboutPad + AboutIcon + 20 + 16 + 2 + 20 + links * (LinkRow + LinkGap) - LinkGap) * scale +
+                         lines * (p.LineHeight(FontId::Body) + 3 * scale) + p.LineHeight(FontId::Heading) + p.LineHeight(FontId::Body);
+    return CenteredCard(AboutWidth * scale, height);
 }
 
 std::string App::ResultDetail(reversi::GameStatus status) const
@@ -932,8 +985,10 @@ std::vector<render::FrostedPanel> App::FrostedPanels() const
         add(PanelRect(), 18, 1);
     if (m_bannerFade > 0.001f)
         add(BannerCard(), 18, m_bannerFade);
-    if (m_helpVisible)
+    if (m_dialog == Dialog::Help)
         add(HelpCard(), 20, 1);
+    else if (m_dialog == Dialog::About)
+        add(AboutCard(), 20, 1);
     return panels;
 }
 
@@ -953,33 +1008,54 @@ std::string App::PlayerName(Color side) const
     return std::format("{} · {}", T(Str::Computer), T(static_cast<Str>(std::to_underlying(Str::Level1) + m_level - 1)));
 }
 
-bool App::Button(int id, Rect rect, std::string_view label, bool enabled, bool accent)
+void App::ToggleDialog(Dialog dialog)
 {
-    const float scale = Scale();
-    const bool modal = m_helpVisible;
-    const bool interactive = enabled && (!modal || id > ModalWidgets);
-    const bool hover = interactive && rect.Contains(m_pointer.x, m_pointer.y);
-    if (hover)
+    m_dialog = m_dialog == dialog ? Dialog::None : dialog;
+    m_dialogOpening = m_dialog != Dialog::None;
+}
+
+bool App::PressedOutside(Rect card) const
+{
+    // A quick click, such as a tap on a touchpad, presses and lets go within one frame: when it opens a card, its
+    // press must not then close it.
+    return m_pointer.leftPressed && !m_dialogOpening && !card.Contains(m_pointer.x, m_pointer.y);
+}
+
+App::Interaction App::Interact(int id, Rect rect, bool enabled)
+{
+    // While a card is open, only its own widgets answer, from the frame after the one that opened it.
+    const bool interactive = enabled && (m_dialog == Dialog::None || (id > ModalWidgets && !m_dialogOpening));
+    Interaction result;
+    result.hover = interactive && rect.Contains(m_pointer.x, m_pointer.y);
+    if (result.hover)
         m_cursorHand = true;
-    if (hover && m_pointer.leftPressed) {
+    if (result.hover && m_pointer.leftPressed) {
         m_activeWidget = id;
         m_pointer.consumed = true;
     }
-    bool clicked = false;
     if (m_pointer.leftReleased && m_activeWidget == id) {
-        clicked = hover;
+        result.clicked = result.hover;
         m_activeWidget = 0;
         m_pointer.consumed = true;
     }
-    const bool pressed = hover && m_activeWidget == id && m_pointer.leftDown;
-    ui::Color fill = !enabled ? Rgba(255, 255, 255, 7) : pressed ? Rgba(255, 255, 255, 52) : hover ? Rgba(255, 255, 255, 34) : Rgba(255, 255, 255, 17);
+    result.pressed = result.hover && m_activeWidget == id && m_pointer.leftDown;
+    if (result.clicked)
+        m_sound.Play(SoundBank::Effect::Click);
+    return result;
+}
+
+bool App::Button(int id, Rect rect, std::string_view label, bool enabled, bool accent)
+{
+    const Interaction state = Interact(id, rect, enabled);
+    ui::Color fill = !enabled        ? Rgba(255, 255, 255, 7)
+                     : state.pressed ? Rgba(255, 255, 255, 52)
+                     : state.hover   ? Rgba(255, 255, 255, 34)
+                                     : Rgba(255, 255, 255, 17);
     if (accent && enabled)
         fill = ui::Mix(fill, ui::FromLinear(ThemeAt(m_theme).accent, static_cast<float>(fill.a) / 255.0f * 2.2f), 0.6f);
-    m_painter->Fill(rect, 9 * scale, fill);
+    m_painter->Fill(rect, 9 * Scale(), fill);
     m_painter->TextCentered(FontId::Body, rect, label, enabled ? TextColor : ui::Fade(TextColor, 0.35f));
-    if (clicked)
-        m_sound.Play(SoundBank::Effect::Click);
-    return clicked;
+    return state.clicked;
 }
 
 int App::Selector(int id, Rect rect, std::string_view label, std::string_view value, float labelWidth)
@@ -1008,8 +1084,10 @@ void App::DrawInterface()
     DrawPanel();
     DrawBanner();
     DrawToasts();
-    if (m_helpVisible)
+    if (m_dialog == Dialog::Help)
         DrawHelp();
+    else if (m_dialog == Dialog::About)
+        DrawAbout();
 }
 
 void App::DrawStatus(Rect area)
@@ -1092,7 +1170,7 @@ void App::DrawMoveList(Rect area)
     const int rows = (static_cast<int>(moves.size()) + offset + 1) / 2;
     const float maxScroll = static_cast<float>(std::max(0, rows - visible));
 
-    if (area.Contains(m_pointer.x, m_pointer.y) && m_pointer.wheel != 0 && !m_helpVisible) {
+    if (area.Contains(m_pointer.x, m_pointer.y) && m_pointer.wheel != 0 && m_dialog == Dialog::None) {
         m_moveScroll = std::clamp(m_moveScroll - m_pointer.wheel * 3, 0.0f, maxScroll);
         m_followMoves = m_moveScroll >= maxScroll;
         m_pointer.wheel = 0;
@@ -1152,8 +1230,11 @@ void App::DrawPanel()
     float y = panel.y + pad;
 
     p.Text(FontId::Heading, x, y, T(Str::Title), TextColor);
-    if (Button(HelpButton, {panel.Right() - pad - 30 * scale, y - 2 * scale, 30 * scale, 30 * scale}, "?"))
-        m_helpVisible = !m_helpVisible;
+    const float small = 30 * scale;
+    if (Button(HelpButton, {panel.Right() - pad - small, y - 2 * scale, small, small}, "?"))
+        ToggleDialog(Dialog::Help);
+    if (Button(AboutButton, {panel.Right() - pad - 2 * small - 6 * scale, y - 2 * scale, small, small}, "i"))
+        ToggleDialog(Dialog::About);
     y += 44 * scale;
 
     DrawStatus({x, y, width, 62 * scale});
@@ -1294,6 +1375,7 @@ void App::DrawHelp()
         {"F11  Alt+Enter", Str::HelpFullScreen},
         {"Ctrl+C", Str::HelpCopy},
         {"Ctrl+V", Str::HelpPaste},
+        {"A", Str::HelpAbout},
         {"Esc  F1", Str::HelpClose},
     }};
     const float rowHeight = HelpRowHeight(), keysWidth = 200 * scale, pad = HelpPad * scale;
@@ -1316,9 +1398,64 @@ void App::DrawHelp()
         y += rowHeight;
         p.Text(FontId::Body, card.x + pad, y, line, MutedColor);
     }
-    if (Button(HelpClose, {card.Right() - pad - 30 * scale, card.y + pad - 8 * scale, 30 * scale, 30 * scale}, "×") ||
-        (m_pointer.leftPressed && !card.Contains(m_pointer.x, m_pointer.y)))
-        m_helpVisible = false;
+    if (Button(HelpClose, {card.Right() - pad - 30 * scale, card.y + pad - 8 * scale, 30 * scale, 30 * scale}, "×") || PressedOutside(card))
+        m_dialog = Dialog::None;
+    if (m_pointer.leftPressed || m_pointer.rightPressed)
+        m_pointer.consumed = true;
+}
+
+void App::DrawAbout()
+{
+    const float scale = Scale();
+    ui::Painter& p = *m_painter;
+    p.Fill({0, 0, static_cast<float>(m_width), static_cast<float>(m_height)}, 0, Rgba(0, 0, 0, 110));
+    const Rect card = AboutCard();
+    const float pad = AboutPad * scale;
+    const ui::Color accent = ui::FromLinear(ThemeAt(m_theme).accent);
+    p.Shadow(card, 26 * scale, Rgba(0, 0, 0, 140));
+    p.Fill(card, 20 * scale, Rgba(18, 20, 28, 175));
+    p.Outline(card, 20 * scale, Rgba(255, 255, 255, 30));
+
+    // The icon, and beside it the name and the version.
+    const float x = card.x + pad, width = card.width - 2 * pad, icon = AboutIcon * scale;
+    float y = card.y + pad;
+    p.Icon({x, y, icon, icon});
+    const float titleHeight = p.LineHeight(FontId::Display), versionHeight = p.LineHeight(FontId::Body);
+    const float titleY = y + (icon - titleHeight - versionHeight) / 2;
+    p.Text(FontId::Display, x + icon + 18 * scale, titleY, "3D Reversi", TextColor);
+    p.Text(FontId::Body, x + icon + 18 * scale, titleY + titleHeight, "Version " REVERSI3D_VERSION " for Linux", MutedColor);
+    y += icon + 20 * scale;
+
+    for (const std::string& line : WrapText(FontId::Body, AboutDescription, width)) {
+        p.Text(FontId::Body, x, y, line, TextColor);
+        y += p.LineHeight(FontId::Body) + 3 * scale;
+    }
+    y += 16 * scale;
+    p.Text(FontId::Heading, x, y, "Created by Mykhailo Makarov", TextColor);
+    y += p.LineHeight(FontId::Heading) + 2 * scale;
+    p.Text(FontId::Body, x, y, "© 2026 · MIT License", MutedColor);
+    y += p.LineHeight(FontId::Body) + 20 * scale;
+
+    // The author's pages, opened in the browser.
+    float nameWidth = 0;
+    for (const Link& link : AuthorLinks)
+        nameWidth = std::max(nameWidth, p.Measure(FontId::Body, link.name));
+    for (std::size_t i = 0; i < AuthorLinks.size(); ++i) {
+        const Link& link = AuthorLinks[i];
+        const Rect row{x, y, width, LinkRow * scale};
+        const Interaction state = Interact(AboutLinks + static_cast<int>(i), row, true);
+        p.Fill(row, 9 * scale, state.pressed ? Rgba(255, 255, 255, 52) : state.hover ? Rgba(255, 255, 255, 34) : Rgba(255, 255, 255, 12));
+        const float textY = row.y + (row.height - p.LineHeight(FontId::Body)) / 2;
+        p.Text(FontId::Body, row.x + 14 * scale, textY, link.name, TextColor);
+        p.Text(FontId::Body, row.x + 32 * scale + nameWidth, textY, link.address, accent);
+        p.Text(FontId::Body, row.Right() - 14 * scale - p.Measure(FontId::Body, "↗"), textY, "↗", state.hover ? TextColor : MutedColor);
+        if (state.clicked)
+            OpenLink(link.url);
+        y += (LinkRow + LinkGap) * scale;
+    }
+
+    if (Button(AboutClose, {card.Right() - pad - 30 * scale, card.y + pad - 8 * scale, 30 * scale, 30 * scale}, "×") || PressedOutside(card))
+        m_dialog = Dialog::None;
     if (m_pointer.leftPressed || m_pointer.rightPressed)
         m_pointer.consumed = true;
 }

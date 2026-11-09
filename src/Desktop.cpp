@@ -5,11 +5,8 @@
 #include <SDL.h>
 #include <SDL_syswm.h>
 #include <X11/Xlib.h>
-#include <png.h>
 
-#include <cstdint>
 #include <cstdlib>
-#include <vector>
 
 namespace desktop {
 
@@ -26,23 +23,15 @@ float TextScale(SDL_Window* window)
     return dpi >= 48 && dpi <= 480 ? dpi / 96 : 1;
 }
 
-void SetIcon(SDL_Window* window)
+void SetIcon(SDL_Window* window, const resources::Image& icon)
 {
-    const auto file = resources::Data("reversi3d.png");
-    png_image image{};
-    image.version = PNG_IMAGE_VERSION;
-    if (!png_image_begin_read_from_memory(&image, file.data(), file.size()))
+    if (icon.Empty())
         return;
-    image.format = PNG_FORMAT_RGBA;
-    std::vector<std::uint8_t> pixels(PNG_IMAGE_SIZE(image));
-    if (!png_image_finish_read(&image, nullptr, pixels.data(), 0, nullptr)) {
-        png_image_free(&image);
-        return;
-    }
-    const int width = static_cast<int>(image.width), height = static_cast<int>(image.height);
-    if (SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(), width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32)) {
-        SDL_SetWindowIcon(window, icon);
-        SDL_FreeSurface(icon);
+    // SDL only reads the pixels.
+    void* pixels = const_cast<std::uint8_t*>(icon.rgba.data());
+    if (SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(pixels, icon.width, icon.height, 32, icon.width * 4, SDL_PIXELFORMAT_RGBA32)) {
+        SDL_SetWindowIcon(window, surface);
+        SDL_FreeSurface(surface);
     }
 }
 

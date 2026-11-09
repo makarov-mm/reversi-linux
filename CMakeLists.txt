@@ -42,6 +42,7 @@ add_executable(reversi3d
     ${CMAKE_BINARY_DIR}/Embedded.cpp)
 
 target_include_directories(reversi3d PRIVATE src)
+target_compile_definitions(reversi3d PRIVATE REVERSI3D_VERSION="${PROJECT_VERSION}")
 target_compile_features(reversi3d PRIVATE cxx_std_23)
 set_target_properties(reversi3d PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_options(reversi3d PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
